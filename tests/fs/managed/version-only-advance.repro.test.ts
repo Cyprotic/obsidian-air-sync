@@ -133,18 +133,23 @@ describe("Google Drive version token advances without a content change", () => {
 		await t.close();
 	}, 120_000);
 
-	it("never overwrites a real remote content change the feed did not report", async () => {
-		const t = await setup(new ChecksummedAdapter());
-		const nodes = (t.adapter as unknown as { nodes: Map<string, { version: number; content: ArrayBuffer }> }).nodes;
-		// Someone else changes the content on the provider, and the feed never reports it.
-		const node = nodes.get(t.noteId)!;
-		node.content = enc("changed elsewhere");
-		node.version++;
-		await t.edit("Note.md", "B", 3000);
-		await t.sync();
-		const head = (await t.adapter.getById(t.noteId))!;
-		const remote = await t.adapter.read({ id: t.noteId, versionToken: head.versionToken! });
-		expect(remote.kind === "content" && new TextDecoder().decode(remote.content)).toBe("changed elsewhere");
-		await t.close();
-	});
+	// "modified" has the same byte length as the seeded "original", so only the checksum
+	// comparison can tell it apart; "changed elsewhere" also differs in size.
+	it.each(["modified", "changed elsewhere"])(
+		"never overwrites a real remote content change the feed did not report (%s)",
+		async (remoteText) => {
+			const t = await setup(new ChecksummedAdapter());
+			const nodes = (t.adapter as unknown as { nodes: Map<string, { version: number; content: ArrayBuffer }> }).nodes;
+			// Someone else changes the content on the provider, and the feed never reports it.
+			const node = nodes.get(t.noteId)!;
+			node.content = enc(remoteText);
+			node.version++;
+			await t.edit("Note.md", "B", 3000);
+			await t.sync();
+			const head = (await t.adapter.getById(t.noteId))!;
+			const remote = await t.adapter.read({ id: t.noteId, versionToken: head.versionToken! });
+			expect(remote.kind === "content" && new TextDecoder().decode(remote.content)).toBe(remoteText);
+			await t.close();
+		},
+	);
 });
